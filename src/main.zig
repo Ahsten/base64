@@ -13,6 +13,48 @@ const Base64 = struct {
     pub fn char_at(self: Base64, index: u8) u8 {
         return self.table[index];
     }
+
+    pub fn encode(self: Base64, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        if (input.len == 0) {
+            return "";
+        }
+
+        const length = try calc_encode_length(input);
+        var output = try allocator.alloc(u8, length);
+        var buffer = [3]u8{ 0, 0, 0 };
+        var count: u8 = 0;
+        var iout: u64 = 0;
+
+        for (input, 0..) |_, i| {
+            buffer[count] = input[i];
+            count += 1;
+            if (count == 3) {
+                output[iout] = self.char_at(buffer[0] >> 2);
+                output[iout + 1] = self.char_at(((buffer[0] & 0x03) << 4) + (buffer[1] >> 4));
+                output[iout + 2] = self.char_at((buffer[1] & 0x0f) + (buffer[2] >> 6));
+                output[iout + 3] = self.char_at(buffer[2] & 0x3f);
+                iout += 4;
+                count = 0;
+            }
+        }
+
+        if (count == 1) {
+            output[iout] = self.char_at(buffer[0] >> 2);
+            output[iout + 1] = self.char_at((buffer[0] & 0x03) << 4);
+            output[iout + 2] = '=';
+            output[iout + 3] = '=';
+        }
+
+        if (count == 2) {
+            output[iout] = self.char_at(buffer[0] >> 2);
+            output[iout + 1] = self.char_at(((buffer[0] & 0x03) << 4) + (buffer[1] >> 4));
+            output[iout + 2] = self.char_at(((buffer[1] & 0x0f) << 2));
+            output[iout + 3] = '=';
+            iout += 4;
+        }
+
+        return output;
+    }
 };
 
 fn calc_encode_length(input: []const u8) !usize {
@@ -44,7 +86,10 @@ fn calc_decode_length(input: []const u8) !usize {
 
 pub fn main() !void {
     const base = Base64.init();
-    std.debug.print("Charater at 28: {c}\n", .{base.char_at(28)});
+    var memory_buffer: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&memory_buffer);
+    const text = try base.encode(fba.allocator(), "Hi");
+    std.debug.print("Encoded text: {s}\n", .{text});
 }
 
 // Tests
@@ -69,4 +114,12 @@ test "calc_decode_length less than 4" {
 
 test "calc_decode_length greater than 4" {
     try testing.expectEqual(calc_decode_length("SGk="), 2);
+}
+
+test "endcode" {
+    const base = Base64.init();
+    var memory_buffer: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&memory_buffer);
+    const text = try base.encode(fba.allocator(), "Hi");
+    try testing.expectEqualStrings("SGk=", text);
 }
