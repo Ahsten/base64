@@ -14,6 +14,21 @@ const Base64 = struct {
         return self.table[index];
     }
 
+    pub fn char_index(self: Base64, char: u8) u8 {
+        if (char == '=') {
+            return 64;
+        }
+
+        var index: u8 = 0;
+        for (0..63) |_| {
+            if (self.char_at(index) == char) {
+                break;
+            }
+            index += 1;
+        }
+        return index;
+    }
+
     pub fn encode(self: Base64, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         if (input.len == 0) {
             return "";
@@ -55,6 +70,41 @@ const Base64 = struct {
 
         return output;
     }
+
+    pub fn decode(self: Base64, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        if (input.len == 0) {
+            return "";
+        }
+
+        const size = try calc_decode_length(input);
+        var output = try allocator.alloc(u8, size);
+        var count: u8 = 0;
+        var iout: u64 = 0;
+        var buffer = [4]u8{ 0, 0, 0, 0 };
+
+        for (0..output.len) |i| {
+            output[i] = 0;
+        }
+
+        for (0..input.len) |i| {
+            buffer[count] = self.char_index(input[i]);
+            count += 1;
+
+            if (count == 4) {
+                output[iout] = (buffer[0] << 2) + (buffer[1] >> 4);
+                if (buffer[2] != 64) {
+                    output[iout + 1] = (buffer[1] << 4) + (buffer[2] >> 2);
+                }
+                if (buffer[3] != 64) {
+                    output[iout + 2] = (buffer[2] << 6) + buffer[3];
+                }
+                iout += 3;
+                count = 0;
+            }
+        }
+
+        return output;
+    }
 };
 
 fn calc_encode_length(input: []const u8) !usize {
@@ -84,27 +134,19 @@ fn calc_decode_length(input: []const u8) !usize {
     return multiple_groups;
 }
 
-fn char_index(self: Base64, char: u8) u8 {
-    if (char == '=') {
-        return 64;
-    }
-
-    var index: u8 = 0;
-    for (0..63) |i| {
-        if (self.char_at(i) == char) {
-            break;
-        }
-        index += 1;
-    }
-    return index;
-}
-
 pub fn main() !void {
-    const base = Base64.init();
+    const stdout = std.io.getStdOut().writer();
     var memory_buffer: [1000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&memory_buffer);
-    const text = try base.encode(fba.allocator(), "Hi");
-    std.debug.print("Encoded text: {s}\n", .{text});
+    const allocator = fba.allocator();
+
+    const text = "Testing some more stuff";
+    const base64_text = "VGVzdGluZyBzb21lIG1vcmUgc3R1ZmY=";
+    const base64 = Base64.init();
+    const encoded_text = try base64.encode(allocator, text);
+    const decoded_text = try base64.decode(allocator, base64_text);
+    try stdout.print("Encoded text: {s}\n", .{encoded_text});
+    try stdout.print("Decoded text: {s}\n", .{decoded_text});
 }
 
 // Tests
